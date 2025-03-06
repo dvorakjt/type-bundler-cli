@@ -1,10 +1,11 @@
-const { input, editor } = require("@inquirer/prompts");
+const { input, editor, select } = require("@inquirer/prompts");
 const fs = require("fs/promises");
 const path = require("path");
 const { exec } = require("./exec");
 
 module.exports.Bundler = class Bundler {
   workingDirPath = path.join(__dirname, "/temp");
+  exportTypes = ["export", "export="];
 
   async bundle() {
     try {
@@ -20,6 +21,7 @@ module.exports.Bundler = class Bundler {
 
   async promptUserForPackageDetails() {
     await this.promptUserForPackageName();
+    await this.promptUserForExportType();
     await this.promptUserForDependencies();
     await this.promptUserForExternalInlines();
     await this.promptUserForTSConfig();
@@ -31,9 +33,14 @@ module.exports.Bundler = class Bundler {
     await exec("npm init -y", { cwd: this.workingDirPath });
     await exec("npm i " + this.dependencies, { cwd: this.workingDirPath });
 
+    const indexFileContents =
+      this.exportType === this.exportTypes[0]
+        ? `export * from '${this.packageName}';`
+        : `import entryPoint = require('${this.packageName}');\nexport default entryPoint;`;
+
     await fs.writeFile(
       path.join(this.workingDirPath, "/index.ts"),
-      `export * from '${this.packageName}';`,
+      indexFileContents,
       "utf-8"
     );
 
@@ -75,6 +82,13 @@ module.exports.Bundler = class Bundler {
     this.packageName = await input({
       message:
         "What is the name of the package you would like to create a .d.ts file for?",
+    });
+  }
+
+  async promptUserForExportType() {
+    this.exportType = await select({
+      message: "How does this package export its types?",
+      choices: this.exportTypes,
     });
   }
 
