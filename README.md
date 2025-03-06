@@ -15,4 +15,4 @@ example, to use in conjunction with the Monaco code editor.
 
 # Notes
 
-You will need to know a little bit about the type definitions you are bundling, for instance, from which external libraries are types imported, what peer dependencies must be installed, do the type definitions you are bundling ship with a tsconfig.json, etc.
+You will need to know a little bit about the type definitions you are bundling, for instance, from which external libraries are types imported, what peer dependencies must be installed, what syntax is used to export the types (for instance @types/react uses `export = ` to export its types), etc.
