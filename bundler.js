@@ -36,7 +36,7 @@ module.exports.Bundler = class Bundler {
     const indexFileContents =
       this.exportType === this.exportTypes[0]
         ? `export * from '${this.packageName}';`
-        : `import entryPoint = require('${this.packageName}');\nexport default entryPoint;`;
+        : `import entryPoint = require('${this.packageName}');\nexport = entryPoint;`;
 
     await fs.writeFile(
       path.join(this.workingDirPath, "/index.ts"),
@@ -109,7 +109,7 @@ module.exports.Bundler = class Bundler {
   async promptUserForTSConfig() {
     this.tsConfig = await editor({
       message:
-        "Enter am appropriate tsconfig file into the editor, save the file, and close the editor.",
+        "Enter an appropriate tsconfig file into the editor, save the file, and close the editor.",
     });
   }
 
