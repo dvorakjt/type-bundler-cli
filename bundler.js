@@ -1,17 +1,16 @@
-const { input, confirm, editor } = require("@inquirer/prompts");
-const fs = require("fs").promises;
+const { input, editor } = require("@inquirer/prompts");
+const fs = require("fs/promises");
 const path = require("path");
-const chalk = require("chalk");
 const { exec } = require("./exec");
 
-class Bundler {
-  tempDirPath = path.join(__dirname, "/temp");
+module.exports.Bundler = class Bundler {
+  workingDirPath = path.join(__dirname, "/temp");
 
   async bundle() {
     try {
-      await this.promptUser();
-      await this.initWorkingDirectory();
-      await this.bundleTypeDefs();
+      await this.promptUserForPackageDetails();
+      await this.initWorkingDir();
+      await this.createDTSFile();
     } catch (e) {
       console.error(e);
     } finally {
@@ -19,141 +18,92 @@ class Bundler {
     }
   }
 
-  async promptUser() {
-    this.greetUser();
-    await this.promptForDependencies();
-    await this.promptForEntryPoint();
-    await this.promptForExternalInlines();
-    await this.promptForTSConfig();
-    await this.promptForOutputPath();
+  async promptUserForPackageDetails() {
+    await this.promptUserForPackageName();
+    await this.promptUserForDependencies();
+    await this.promptUserForExternalInlines();
+    await this.promptUserForTSConfig();
+    await this.promptUserForOutputPath();
   }
 
-  async initWorkingDirectory() {
-    await this.createTempDirectory();
-    await this.initNodeProject();
+  async initWorkingDir() {
+    await fs.mkdir(this.workingDirPath);
+    await exec("npm init -y", { cwd: this.workingDirPath });
+    await exec("npm i " + this.dependencies, { cwd: this.workingDirPath });
+
+    await fs.writeFile(
+      path.join(this.workingDirPath, "/index.ts"),
+      `export * from '${this.packageName}';`,
+      "utf-8"
+    );
+
+    await fs.writeFile(
+      path.join(this.workingDirPath, "/tsconfig.json"),
+      this.tsConfig,
+      "utf-8"
+    );
   }
 
-  async bundleTypeDefs() {
-    const pathToBin = path.join(
+  async createDTSFile() {
+    const pathToDTSBundleGenerator = path.join(
       __dirname,
       "/node_modules/.bin/dts-bundle-generator"
     );
 
-    const pathToEntryPoint = path.join(
-      this.tempDirPath,
-      "/node_modules",
-      this.entryPoint
+    const pathToInput = path.join(this.workingDirPath, "/index.ts");
+
+    const options = [
+      "--no-check",
+      "--export-referenced-types=false",
+      "--out-file " + this.outputPath,
+      "--external-inlines " + this.packageName + " " + this.externalInlines,
+      "--",
+    ];
+
+    const command = [pathToDTSBundleGenerator, ...options, pathToInput].join(
+      " "
     );
 
-    await exec(
-      pathToBin +
-        " --no-check --out-file " +
-        this.outputPath +
-        " --external-inlines " +
-        this.externalInlines +
-        " -- " +
-        pathToEntryPoint
-    );
+    await exec(command);
   }
 
   async cleanup() {
-    await fs.rm(this.tempDirPath, {
-      recursive: true,
-      force: true,
+    await fs.rm(this.workingDirPath, { recursive: true, force: true });
+  }
+
+  async promptUserForPackageName() {
+    this.packageName = await input({
+      message:
+        "What is the name of the package you would like to create a .d.ts file for?",
     });
   }
 
-  greetUser() {
-    console.log(
-      chalk.blue.bold(
-        "Welcome! This CLI application will help you bundle your type definitions into a single file."
-      )
-    );
-  }
-
-  async promptForDependencies() {
+  async promptUserForDependencies() {
     this.dependencies = await input({
-      message: chalk.green(
-        "What packages should be installed? Enter them as a space separated list."
-      ),
+      message:
+        "What dependencies should be installed? Enter as a space-separated list. Include the package to be bundled in the list.",
     });
   }
 
-  async promptForEntryPoint() {
-    let entryPoint = await input({
-      message: chalk.magenta(
-        "From within the node modules folder, what is the path to the .d.ts file you want to bundle?"
-      ),
-    });
-
-    entryPoint = entryPoint.trim();
-
-    if (
-      !(
-        entryPoint.startsWith("/") ||
-        entryPoint.startsWith("./") ||
-        entryPoint.startsWith("../")
-      )
-    ) {
-      entryPoint = "/" + entryPoint;
-    }
-
-    this.entryPoint = entryPoint;
-  }
-
-  async promptForExternalInlines() {
+  async promptUserForExternalInlines() {
     this.externalInlines = await input({
-      message: chalk.green(
-        "Which external packages should have their type declarations inlined into the bundled .d.ts file? Enter them as a space separated list."
-      ),
+      message:
+        "What dependencies' type definitions should be inlined into the .d.ts file? Enter as space-separated list.",
     });
   }
 
-  async promptForTSConfig() {
-    console.log(chalk.yellow("/!\\ A tsconfig.json file is required."));
-
-    const needsTSConfig = await confirm({
-      message: "Do you need to add a tsconfig file for the module?",
+  async promptUserForTSConfig() {
+    this.tsConfig = await editor({
+      message:
+        "Enter am appropriate tsconfig file into the editor, save the file, and close the editor.",
     });
-
-    if (needsTSConfig) {
-      this.tsConfigFile = await editor({
-        message: chalk.blue(
-          "Paste the contents of the tsconfig file into the editor, save the file, and the close the editor."
-        ),
-      });
-    } else {
-      this.tsConfigFile = null;
-    }
   }
 
-  async promptForOutputPath() {
-    const outputPath = await input({
-      message: chalk.green(
-        "Please enter a path to which the output should be written."
-      ),
+  async promptUserForOutputPath() {
+    this.outputPath = await input({
+      message: "Enter a file path to which to write the output.",
     });
-
-    this.outputPath = outputPath.trim();
   }
 
-  async createTempDirectory() {
-    await fs.mkdir(this.tempDirPath);
-  }
-
-  async initNodeProject() {
-    await exec("npm init -y", { cwd: this.tempDirPath });
-    await exec("npm i " + this.dependencies, { cwd: this.tempDirPath });
-    if (this.tsConfigFile) {
-      const pathToTSConfig = path.join(
-        this.tempDirPath,
-        "/node_modules",
-        this.entryPoint.slice(0, this.entryPoint.lastIndexOf("/")),
-        "/tsconfig.json"
-      );
-      await fs.writeFile(pathToTSConfig, this.tsConfigFile, "utf-8");
-    }
-  }
-}
-
-module.exports.Bundler = Bundler;
+  async initNodeProject() {}
+};
